@@ -5,7 +5,7 @@
 This repo builds
 [Tour of CLIPSraylib](https://ryjo.codes/tour-of-clipsraylib.html),
 a website that lets you render programs defined in a `textarea` built with
-[CLIPSraylib]()
+[CLIPSraylib](https://github.com/mrryanjohnston/CLIPSraylib)
 and render them to a `canvas` element.
 
 ## Building locally
