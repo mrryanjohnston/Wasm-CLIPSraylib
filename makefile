@@ -12,9 +12,11 @@ $(TARGET): raylib/src/libraylib.web.a
 	[ -d "CLIPSraylib" ] || git clone https://github.com/mrryanjohnston/CLIPSraylib.git
 	cp makefile.CLIPS CLIPSraylib/src/makefile
 	$(MAKE) -C CLIPSraylib/src -sEXPORTED_FUNCTIONS=_CreateEnvironment,_BatchStar,_Clear,_Reset
+	cp CLIPSraylib/clipsraylib .
+	cp CLIPSraylib/clipsraylib.wasm .
 	cp CLIPSraylib/examples/*.png .
 
 clean:
 	$(MAKE) clean -C raylib/src
 	$(MAKE) clean -C CLIPSraylib/src
-	rm -f $(TARGET) raylib/src/libraylib.web.a CLIPSraylib/clips CLIPSraylib/clips.wasm *.png
+	rm -f $(TARGET) raylib/src/libraylib.web.a CLIPSraylib/clipsraylib CLIPSraylib/clipsraylib.wasm *.png clipsraylib clipsraylib.wasm

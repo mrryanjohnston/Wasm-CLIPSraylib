@@ -91,7 +91,7 @@ release_cpp : clips
 	$(CC) -c -D$(CLIPS_OS) $(CFLAGS) $(WARNINGS) $<
 
 clips : main.o libclips.a
-	$(CC) -O3 -o ../clips main.o -I./../../raylib/src -L./../../raylib/src -l:libraylib.web.a -s USE_GLFW=3 -s ASYNCIFY=1 -s ASYNCIFY_STACK_SIZE=2097152 -L. -lclips -sEXPORTED_FUNCTIONS=_CreateEnvironment,_DestroyEnvironment,_BatchStar,_Clear,_Reset,_Eval,_Run,_Build,_SetHaltExecution,_SetEvaluationError,_malloc,_free,lengthBytesUTF8,stringToUTF8 $(LDLIBS)
+	$(CC) -O3 -o ../clipsraylib main.o -I./../../raylib/src -L./../../raylib/src -l:libraylib.web.a -s USE_GLFW=3 -s ASYNCIFY=1 -s ASYNCIFY_STACK_SIZE=2097152 -L. -lclips -sEXPORTED_FUNCTIONS=_CreateEnvironment,_DestroyEnvironment,_BatchStar,_Clear,_Reset,_Eval,_Run,_Build,_SetHaltExecution,_SetEvaluationError,_malloc,_free,lengthBytesUTF8,stringToUTF8 $(LDLIBS)
 
 libclips.a : $(OBJS)
 	rm -f $@   
