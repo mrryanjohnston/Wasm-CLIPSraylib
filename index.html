@@ -1,0 +1,2079 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="An introduction to CLIPSraylib, a way to write raylib in CLIPS." />
+  <meta name="title" content="ryjo.codes - Tour of CLIPSraylib" />
+  <title>ryjo.codes - Tour of CLIPSraylib</title>
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+  <link rel="manifest" href="/site.webmanifest" />
+  <link rel="mask-icon" href="/safari-pinned-tab.svg" color="#000000" />
+  <meta name="msapplication-TileColor" content="#ffffff" />
+  <meta name="theme-color" content="#ffffff" />
+  <style>
+    body { margin: 0; display: flex; flex-direction: column; }
+    header { align-items: center; max-width: 800px; position: sticky; top 0; }
+    header div { flex: 1; }
+    #title { text-align: right; }
+    #left { flex: 2 1 auto; position: relative; max-width: 800px; }
+    #submit, #halt, #program { padding: 20px; border-radius: 10px; }
+    #program { text-decoration: underline; color: #006600; background: none; }
+    #submit:enabled, #halt:enabled { color: white; font-weight: 800; }
+    #submit:enabled { border: 1px solid #006600; background: #006600; }
+    #halt:enabled { background: red; }
+    #submit:enabled, #halt:enabled, #program { cursor: pointer; }
+    canvas { width: 100%; top 0; aspect-ratio: 16 / 9; }
+    #right { display: flex; flex: 1 1 auto; flex-direction: column; }
+    #code { background-color: #f6f8fa; width: 100%; max-height: 200px; min-height: 200px; border: 0; }
+    #controls { display: flex; flex-direction: row; }
+    #submit, #halt { flex: 1; }
+    .hidden { display: none; }
+    @media only screen and (min-width: 415px) {
+      header { display: flex; }
+      #code { max-height: 275px; min-height: 275px; }
+    }
+    @media only screen and (min-width: 640px) {
+      #main { display: flex; }
+      canvas { display: block; max-height: 500px; }
+      #code { max-height: 400px; min-height: 400px; border: 0; }
+      #what { flex: 1; max-width: 800px; margin: 0 auto; }
+    }
+    h2 { color: #006600; }
+    a { color: #006600; }
+    body { color: #111; font-family: sans-serif; margin: 15px auto; padding: 15px; }
+    code { background-color: #f6f8fa; font-size: 12pt; padding: 0.2em 0.4em; }
+  </style>
+</head>
+<body>
+<header>
+      <div id="site">
+        <h1><a href="/">ryjo.codes</a></h1>
+      </div>
+      <div id="title">
+        <h2><a href="#">Tour of CLIPSraylib</a></h2>
+      </div>
+    </header>
+  <div id="main">
+  <div id="left">
+	  <canvas id="canvas"></canvas>
+  </div>
+  <div id="right">
+	  <textarea id="code">(raylib-init-window 800 450 "2D Camera Platform")
+
+(deffacts cameras
+	(camera center)
+	(camera center center-inside-map)
+	(camera center-inside-map center-smooth-follow)
+	(camera center-smooth-follow even-out-landing)
+	(camera even-out-landing player-bounds-push)
+	(camera player-bounds-push center))
+
+(deffacts surfaces
+	(surface 300 200 400 10) ;highest platform
+	(surface 250 300 100 10) ;left platform
+	(surface 650 300 100 10) ;right platform
+	(surface 0 400 1000 200)) ;ground
+
+(deffacts physics
+	(gravity 400))
+
+(deftemplate player
+	(slot x (default 400))
+	(slot y (default 280))
+	(slot x-delta (default 0))
+	(slot y-delta (default 0))
+	(slot walk-speed (default 200.0))
+	(slot jump-speed (default 350.0)))
+
+(deffunction c-pressed (?time)
+	(raylib-is-key-pressed KEY_C))
+
+(deffunction r-pressed (?time)
+	(raylib-is-key-pressed KEY_R))
+
+(deffunction space-pressed (?time)
+	(raylib-is-key-down KEY_SPACE))
+
+(deffunction left-pressed (?time)
+	(raylib-is-key-down KEY_LEFT))
+
+(deffunction right-pressed (?time)
+	(raylib-is-key-down KEY_RIGHT))
+
+(defrule reset-player
+	?player <- (player)
+	(frame-time ?time)
+	(should-exit FALSE)
+	(test (r-pressed ?time))
+	=>
+	(modify ?player
+		(x (deftemplate-slot-default-value player x))
+		(y (deftemplate-slot-default-value player y))))
+
+(defrule jump
+	?player <- (player
+		(x ?playerx)
+		(y ?playery)
+		(y-delta 0)
+		(jump-speed ?jump-speed))
+	(frame-time ?time)
+	(should-exit FALSE)
+	(surface ?surfacex ?playery
+		?width
+			&:(<= ?surfacex ?playerx)
+			&:(>= (+ ?surfacex ?width) ?playerx)
+		?)
+	(not (new-player-y-delta ?))
+	(test (space-pressed ?time))
+	=>
+	(assert
+		(new-player-y (+ ?playery (* -1 ?jump-speed ?time)))
+		(new-player-y-delta (* -1 ?jump-speed))))
+
+(defrule fall
+	?player <- (player
+		(x ?playerx)
+		(y ?playery)
+		(y-delta ?ydelta))
+	(frame-time ?time)
+	(gravity ?gravity)
+	(should-exit FALSE)
+	(not 
+		(surface ?surfacex
+			?surfacey
+				&:(>= ?surfacey ?playery)
+				&:(<= ?surfacey (+ ?playery (* ?ydelta ?time)))
+			?width
+				&:(<= ?surfacex ?playerx)
+				&:(>= (+ ?surfacex ?width) ?playerx)
+			?))
+	(not (new-player-y-delta ?))
+	=>
+	(assert
+		(new-player-y (+ ?playery (* ?ydelta ?time)))
+		(new-player-y-delta (+ ?ydelta (* ?time ?gravity)))))
+
+(defrule land
+	?player <- (player
+		(x ?playerx)
+		(y ?playery)
+		(y-delta ?ydelta&:(> ?ydelta 0)))
+	(frame-time ?time)
+	(surface ?surfacex
+		?surfacey
+			&:(>= ?surfacey ?playery)
+			&:(<= ?surfacey (+ ?playery (* ?ydelta ?time)))
+		?width
+			&:(<= ?surfacex ?playerx)
+			&:(>= (+ ?surfacex ?width) ?playerx)
+		?)
+	(should-exit FALSE)
+	(not (new-player-y-delta ?))
+	=>
+	(assert
+		(new-player-y ?surfacey)
+		(new-player-y-delta 0)))
+
+(defrule on-the-ground
+	?player <- (player
+		(x ?playerx)
+		(y ?playery)
+		(y-delta 0))
+	(frame-time ?time)
+	(surface ?surfacex ?playery
+		?width
+			&:(<= ?surfacex ?playerx)
+			&:(>= (+ ?surfacex ?width) ?playerx)
+		?)
+	(should-exit FALSE)
+	(not (new-player-y-delta ?))
+	(test (not (space-pressed ?time)))
+	=>
+	(assert
+		(new-player-y ?playery)
+		(new-player-y-delta 0)))
+
+(defrule standing-still
+	?player <- (player
+		(x ?playerx))
+	(frame-time ?time)
+	(should-exit FALSE)
+	(not (new-player-x ?))
+	(test (or
+		(and
+			(not (left-pressed ?time))
+			(not (right-pressed ?time)))
+		(and
+			(left-pressed ?time)
+			(right-pressed ?time))))
+	=>
+	(assert (new-player-x ?playerx)))
+
+(defrule move-left
+	?player <- (player
+		(x ?playerx)
+		(walk-speed ?walk-speed))
+	(frame-time ?time)
+	(should-exit FALSE)
+	(not (test (right-pressed ?time)))
+	(not (new-player-x ?))
+	(test (left-pressed ?time))
+	=>
+	(assert (new-player-x (- ?playerx (* ?time ?walk-speed)))))
+
+(defrule move-right
+	?player <- (player
+		(x ?playerx)
+		(walk-speed ?walk-speed))
+	(frame-time ?time)
+	(should-exit FALSE)
+	(not (test (left-pressed ?time)))
+	(not (new-player-x ?))
+	(test (right-pressed ?time))
+	=>
+	(assert (new-player-x (+ ?playerx (* ?time ?walk-speed)))))
+
+(defrule draw-scene-camera-center
+	?player <- (player)
+	?nx <- (new-player-x ?x)
+	?ny <- (new-player-y ?y)
+	?nyd <- (new-player-y-delta ?ydelta)
+	?f <- (frame-time ?time)
+	(camera center)
+	(should-exit FALSE)
+	=>
+	(retract ?f ?nx ?ny ?nyd)
+	(modify ?player
+		(x ?x)
+		(y ?y)
+		(y-delta ?ydelta))
+	(raylib-begin-drawing)
+		(raylib-clear-background LIGHTGRAY)
+		(raylib-begin-mode-2d 400 280 (integer ?x) (integer ?y))
+			(raylib-draw-rectangle 0 0 1000 400 LIGHTGRAY) ;background
+			(do-for-all-facts ((?s surface)) TRUE
+				(raylib-draw-rectangle (nth$ 1 ?s:implied) (nth$ 2 ?s:implied) (nth$ 3 ?s:implied) (nth$ 4 ?s:implied) GRAY))
+
+			(raylib-draw-rectangle (- (integer ?x) 20) (- (integer ?y) 40) 40 40 RED) ;player
+		(raylib-end-mode-2d)
+
+		(raylib-draw-text "Controls:" 20 20 10 BLACK)
+		(raylib-draw-text "- Right/Left to move" 40 40 10 DARKGRAY)
+		(raylib-draw-text "- Space to jump" 40 60 10 DARKGRAY)
+		(raylib-draw-text "- Mouse Wheel to Zoom in-out (not yet implemented), R to reset character" 40 80 10 DARKGRAY)
+		(raylib-draw-text "- C to change camera mode (not yet implemented)" 40 100 10 DARKGRAY)
+		(raylib-draw-text "Current camera mode:" 20 120 10 BLACK)
+	(raylib-end-drawing)
+	(assert
+		(frame-time (raylib-get-frame-time))
+		(should-exit (raylib-window-should-close))))
+
+(defrule die
+	(should-exit TRUE)
+	=>
+	(println "Done. Exiting...")
+	(raylib-close-window)
+	(exit))
+
+(reset)
+(assert
+	(player)
+	(frame-time 0)
+	(should-exit FALSE))
+(raylib-set-target-fps 60)
+(run)</textarea>
+	  <div id="controls">
+		  <button id="submit" disabled=disabled>Run!</button>
+		  <button id="halt" disabled=disabled>Halt.</button>
+	  </div>
+	  Programs:
+	  <select id="program">
+	    <option value="program-2d-camera-platformer.bat">program-2d-camera-platformer.bat</option>
+	    <option value="program-key.bat">program-key.bat</option>
+	    <option value="program-report-mouse-no-time.bat">program-report-mouse-no-time.bat</option>
+	    <option value="shapes-bouncing-ball.bat">shapes-bouncing-ball.bat</option>
+	    <option value="shapes-draw-rectangle-rounded.bat">shapes-draw-rectangle-rounded.bat</option>
+	    <option value="shapes-logo-raylib-anim.bat">shapes-logo-raylib-anim.bat</option>
+	    <option value="shapes-collision-area.bat">shapes-collision-area.bat</option>
+	    <option value="textures-fog-of-war.bat">textures-fog-of-war.bat</option>
+	    <option value="textures-sprite-anim.bat">textures-sprite-anim.bat</option>
+	    <option value="textures-multiple-sprite-anim.bat">textures-multiple-sprite-anim.bat</option>
+	  </select>
+  </div>
+  </div>
+  <div id="what">
+  <h2>What is this?</h2>
+  <p>
+	This site,
+	<a href="https://ryjo.codes/tour-of-clipsraylib.html">Tour of CLIPSraylib</a>,
+	is
+	<a href="https://github.com/mrryanjohnston/Wasm-CLIPSraylib" target="_blank">Wasm-CLIPSraylib</a>,
+	a site demonstrating how you can build videogames in real time in your browser
+	using
+	<a href="https://www.clipsrules.net/" target="_blank">CLIPS</a>,
+	<a href="https://www.raylib.com/" target="_blank">raylib</a>,
+	and
+	<a href="https://emscripten.org/" target="_blank">Emscripten</a>.
+	It lets you make changes to the code in the <code>textarea</code> HTML element
+	and render the changes to a <code>canvas</code> element.
+	It uses no other front-end frameworks to accomplish this.
+  </p>
+  <h2>What is CLIPS?</h2>
+  <p>
+	<a href="https://www.clipsrules.net/" target="_blank">CLIPS</a>
+	is a programming language well suited for building
+	<a href="https://en.wikipedia.org/wiki/Business_rules_engine" target="_blank">Rules Engines</a>,
+	programs that express your business logic as "Rules" and "Facts."
+	It was originally written by engineers at NASA between 1985 and 1996 and was touted
+	as "NASA's AI Language."
+	It is still actively maintained by on of the original programmers,
+	<a href="https://clipsrules.net/AboutTheDeveloper.html" target="_blank">Gary Riley</a>.
+	CLIPS is very convenient for building Video Games because
+	Games express instructions for playing them as "Rules."
+  </p>
+  <h2>What is raylib?</h2>
+  <p>
+	<a href="https://www.raylib.com/" target="_blank">raylib</a>
+	is "a simple and easy-to-use library to enjoy videogames programming."
+	Its lead developer is
+	<a href="https://github.com/raysan5" target="_blank">raysan</a>,
+	a University Lecturer at
+	<a href="https://www.tecnocampus.cat/en/" target="_blank">TechnoCampus</a>.
+	raylib works really well with CLIPS because its API is very easy to implement
+	as CLIPS User Defined Functions.
+  </p>
+  <h2>What is Emscripten?</h2>
+  <p>
+	<a href="https://emscripten.org/" target="_blank">Emscripten</a>
+	is "a complete compiler toolchain to WebAssembly, using LLVM,
+	with a special focus on speed, size, and the Web platform." It's been around
+	since 2010, and it's easy to use with raylib and CLIPS. Simple specify
+	<code>PLATFORM_WEB</code> for raylib
+	and change your C compiler to <code>emcc</code> for CLIPS and you're good to go.
+  </p>
+  </div>
+  <div id="shapes-bouncing-ball.bat" class="hidden">(raylib-init-window 800 450 "CLIPSraylib [shapes] example - bouncing ball")
+(raylib-set-target-fps 60)
+
+(deffacts init
+	(xposition 20.0)
+	(yposition 20.0)
+	(xspeed 5.0)
+	(yspeed 4.0)
+	(radius 20)
+	(pause FALSE)
+	(frames 0)
+	(window-should-close FALSE))
+
+(defrule ball-hits-wall
+	(xposition ?xposition)
+	(radius ?radius)
+	?f <- (xspeed ?xspeed)
+	(pause FALSE)
+	(window-should-close FALSE)
+	(test (or
+		(and
+			(< ?xspeed 0)
+			(<= ?xposition ?radius))
+		(and
+			(> ?xspeed 0)
+			(>= ?xposition (- (raylib-get-screen-width) ?radius)))))
+	=>
+	(retract ?f)
+	(assert
+		(xspeed (* -1 ?xspeed))))
+
+(defrule ball-hits-ceiling-or-floor
+	(yposition ?yposition)
+	(radius ?radius)
+	?f <- (yspeed ?yspeed)
+	(pause FALSE)
+	(window-should-close FALSE)
+	(test (or
+		(and
+			(< ?yspeed 0)
+			(<= ?yposition ?radius))
+		(and
+			(> ?yspeed 0)
+			(>= ?yposition (- (raylib-get-screen-height) ?radius)))))
+	=>
+	(retract ?f)
+	(assert
+		(yspeed (* -1 ?yspeed))))
+
+(defrule render
+	?x <- (xposition ?xposition)
+	?y <- (yposition ?yposition)
+	(xspeed ?xspeed)
+	(yspeed ?yspeed)
+	(radius ?radius)
+	?pause <- (pause FALSE)
+	?w <- (window-should-close FALSE)
+	(test (and
+		(or
+			(= ?xspeed 0)
+			(and
+				(> ?xspeed 0)
+				(<= ?xposition (- (raylib-get-screen-width) ?radius)))
+			(and
+				(< ?xspeed 0)
+				(>= ?xposition ?radius)))
+		(or
+			(= ?yspeed 0)
+			(and
+				(< ?yspeed 0)
+				(>= ?yposition ?radius))
+			(and
+				(> ?yspeed 0)
+				(<= ?yposition (- (raylib-get-screen-height) ?radius))))))
+	=>
+	(retract ?x ?y ?w ?pause)
+	(assert
+		(window-should-close (raylib-window-should-close))
+		(pause (raylib-is-key-pressed KEY_SPACE))
+		(unpause FALSE)
+		(xposition (+ ?xposition ?xspeed))
+		(yposition (+ ?yposition ?yspeed)))
+	(raylib-begin-drawing)
+		(raylib-clear-background RAYWHITE)
+		(raylib-draw-circle-v ?xposition ?yposition ?radius MAROON)
+		(raylib-draw-text "PRESS SPACE to PAUSE BALL MOVEMENT" 10 (- (raylib-get-screen-height) 25) 20 LIGHTGRAY)
+		(raylib-draw-fps 10 10)
+	(raylib-end-drawing))
+
+(defrule wait
+	?f <- (frames ?frames)
+	(pause TRUE)
+	?unpause <- (unpause FALSE)
+	?w <- (window-should-close FALSE)
+	=>
+	(retract ?f ?unpause ?w)
+	(raylib-begin-drawing)
+	(if (= (mod (integer (/ ?frames 30)) 2) 0)
+		then
+		(raylib-draw-text "PAUSED" 350 200 30 GRAY))
+	(assert
+		(frames (+ 1 ?frames))
+		(window-should-close (raylib-window-should-close))
+		(unpause (raylib-is-key-pressed KEY_SPACE)))
+		(raylib-clear-background RAYWHITE)
+	(raylib-end-drawing))
+
+(defrule unpause
+	?pause <- (pause TRUE)
+	?unpause <- (unpause TRUE)
+	?w <- (window-should-close FALSE)
+	=>
+	(retract ?pause ?unpause)
+	(assert
+		(pause FALSE)
+		(window-should-close (raylib-window-should-close))))
+
+(defrule die
+	(window-should-close TRUE)
+	=>
+	(println "Done. Exiting...")
+	(raylib-close-window)
+	(exit))
+(reset)
+(run)</div>
+  <div id="program-key.bat" class="hidden">(raylib-init-window 800 400 "Hello, keyboard")
+
+(deffunction check-if-should-exit (?delta)
+	(raylib-window-should-close))
+
+(defrule before
+	?f <- (new-spacebar-pressed FALSE)
+	(not (test (check-if-should-exit ?f)))
+	=>
+	(retract ?f)
+	(raylib-begin-drawing)
+		(raylib-clear-background RAYWHITE)
+		(raylib-draw-text "Press the spacebar for as long as you can" 190 200 20 BLACK)
+	(raylib-end-drawing)
+	(assert (new-spacebar-pressed (raylib-is-key-down KEY_SPACE))))
+
+(defrule end-before
+	?d <- (new-spacebar-pressed FALSE)
+	(test (check-if-should-exit ?d))
+	=>
+	(println "Exiting early...")
+	(raylib-close-window)
+	(exit))
+
+(defrule start
+	?f <- (new-spacebar-pressed TRUE)
+	(not (test (check-if-should-exit ?f)))
+	=>
+	(assert
+		(new-spacebar-hold (raylib-is-key-down KEY_SPACE))
+		(began-holding (time))))
+
+(defrule continue
+	?d <- (new-spacebar-hold TRUE)
+	(began-holding ?began)
+	(not (test (check-if-should-exit ?d)))
+	=>
+	(retract ?d)
+	(raylib-begin-drawing)
+		(raylib-clear-background GREEN)
+		(raylib-draw-text (format nil "Keep holding! Seconds held so far: %f" (- (time) ?began)) 190 200 20 DARKGREEN)
+	(raylib-end-drawing)
+	(assert (new-spacebar-hold (raylib-is-key-down KEY_SPACE))))
+
+(defrule stopped-holding-spacebar
+	?d <- (new-spacebar-hold FALSE)
+	(began-holding ?time)
+	(not (stopped-holding ?time))
+	(not (test (check-if-should-exit ?d)))
+	=>
+	(assert
+		(stopped-holding (time))
+		(time (time))))
+
+(defrule report
+	(new-spacebar-hold FALSE)
+	(began-holding ?began)
+	(stopped-holding ?ended)
+	?d <- (time ?now)
+	(not (test (check-if-should-exit ?d)))
+	=>
+	(retract ?d)
+	(raylib-begin-drawing)
+		(raylib-clear-background SKYBLUE)
+		(raylib-draw-text (format nil "Nice! You held for %f seconds!" (- ?ended ?began)) 190 200 20 DARKBLUE)
+	(raylib-end-drawing)
+	(assert (time (time))))
+
+(defrule end-after
+	?t <- (time ?time)
+	(test (check-if-should-exit ?t))
+	=>
+	(println "Done. Exiting...")
+	(raylib-close-window)
+	(exit))
+
+(reset)
+(assert (new-spacebar-pressed FALSE))
+(run)</div>
+  <div id="program-report-mouse-no-time.bat" class="hidden">(raylib-init-window 800 400 "Hello, mouse")
+
+(deffacts setup
+	(should-exit FALSE)
+	(new-mouse-delta 0 0)
+	(new-mouse-position 0 0)
+	(new-mouse-button FALSE FALSE))
+
+(defrule continue
+	?d <- (new-mouse-delta ?ndx ?ndy)
+	?p <- (new-mouse-position ?npx ?npy)
+	?c <- (new-mouse-color ?color)
+	?b <- (new-mouse-button ? ?)
+	?s <- (should-exit FALSE)
+	=>
+	(retract ?d ?p ?c ?b ?s)
+	(raylib-begin-drawing)
+		(raylib-clear-background RAYWHITE)
+		(raylib-draw-circle (integer ?npx) (integer ?npy) 100 ?color)
+	(raylib-end-drawing)
+	(assert
+		(should-exit (raylib-window-should-close))
+		(new-mouse-delta (raylib-get-mouse-delta))
+		(new-mouse-position (raylib-get-mouse-position))
+		(new-mouse-button
+			(raylib-is-mouse-button-down MOUSE_BUTTON_LEFT)
+		      	(raylib-is-mouse-button-down MOUSE_BUTTON_RIGHT))))
+
+(defrule determine-color-gray
+	(new-mouse-button FALSE FALSE)
+	=>
+	(assert (new-mouse-color DARKGRAY)))
+
+(defrule determine-color-red
+	(new-mouse-button TRUE FALSE)
+	=>
+	(assert (new-mouse-color RED)))
+
+(defrule determine-color-blue
+	(new-mouse-button FALSE TRUE)
+	=>
+	(assert (new-mouse-color BLUE)))
+
+(defrule determine-color-purple
+	(new-mouse-button TRUE TRUE)
+	=>
+	(assert (new-mouse-color PURPLE)))
+
+(defrule die
+	(should-exit TRUE)
+	=>
+	(raylib-close-window)
+	(println "Closing program...")
+	(exit))
+
+(reset)
+(run)</div>
+  <div id="program-2d-camera-platformer.bat" class="hidden">(raylib-init-window 800 450 "2D Camera Platform")
+
+(deffacts cameras
+	(camera center)
+	(camera center center-inside-map)
+	(camera center-inside-map center-smooth-follow)
+	(camera center-smooth-follow even-out-landing)
+	(camera even-out-landing player-bounds-push)
+	(camera player-bounds-push center))
+
+(deffacts surfaces
+	(surface 300 200 400 10) ;highest platform
+	(surface 250 300 100 10) ;left platform
+	(surface 650 300 100 10) ;right platform
+	(surface 0 400 1000 200)) ;ground
+
+(deffacts physics
+	(gravity 400))
+
+(deftemplate player
+	(slot x (default 400))
+	(slot y (default 280))
+	(slot x-delta (default 0))
+	(slot y-delta (default 0))
+	(slot walk-speed (default 200.0))
+	(slot jump-speed (default 350.0)))
+
+(deffunction c-pressed (?time)
+	(raylib-is-key-pressed KEY_C))
+
+(deffunction r-pressed (?time)
+	(raylib-is-key-pressed KEY_R))
+
+(deffunction space-pressed (?time)
+	(raylib-is-key-down KEY_SPACE))
+
+(deffunction left-pressed (?time)
+	(raylib-is-key-down KEY_LEFT))
+
+(deffunction right-pressed (?time)
+	(raylib-is-key-down KEY_RIGHT))
+
+(defrule reset-player
+	?player <- (player)
+	(frame-time ?time)
+	(should-exit FALSE)
+	(test (r-pressed ?time))
+	=>
+	(modify ?player
+		(x (deftemplate-slot-default-value player x))
+		(y (deftemplate-slot-default-value player y))))
+
+(defrule jump
+	?player <- (player
+		(x ?playerx)
+		(y ?playery)
+		(y-delta 0)
+		(jump-speed ?jump-speed))
+	(frame-time ?time)
+	(should-exit FALSE)
+	(surface ?surfacex ?playery
+		?width
+			&:(<= ?surfacex ?playerx)
+			&:(>= (+ ?surfacex ?width) ?playerx)
+		?)
+	(not (new-player-y-delta ?))
+	(test (space-pressed ?time))
+	=>
+	(assert
+		(new-player-y (+ ?playery (* -1 ?jump-speed ?time)))
+		(new-player-y-delta (* -1 ?jump-speed))))
+
+(defrule fall
+	?player <- (player
+		(x ?playerx)
+		(y ?playery)
+		(y-delta ?ydelta))
+	(frame-time ?time)
+	(gravity ?gravity)
+	(should-exit FALSE)
+	(not 
+		(surface ?surfacex
+			?surfacey
+				&:(>= ?surfacey ?playery)
+				&:(<= ?surfacey (+ ?playery (* ?ydelta ?time)))
+			?width
+				&:(<= ?surfacex ?playerx)
+				&:(>= (+ ?surfacex ?width) ?playerx)
+			?))
+	(not (new-player-y-delta ?))
+	=>
+	(assert
+		(new-player-y (+ ?playery (* ?ydelta ?time)))
+		(new-player-y-delta (+ ?ydelta (* ?time ?gravity)))))
+
+(defrule land
+	?player <- (player
+		(x ?playerx)
+		(y ?playery)
+		(y-delta ?ydelta&:(> ?ydelta 0)))
+	(frame-time ?time)
+	(surface ?surfacex
+		?surfacey
+			&:(>= ?surfacey ?playery)
+			&:(<= ?surfacey (+ ?playery (* ?ydelta ?time)))
+		?width
+			&:(<= ?surfacex ?playerx)
+			&:(>= (+ ?surfacex ?width) ?playerx)
+		?)
+	(should-exit FALSE)
+	(not (new-player-y-delta ?))
+	=>
+	(assert
+		(new-player-y ?surfacey)
+		(new-player-y-delta 0)))
+
+(defrule on-the-ground
+	?player <- (player
+		(x ?playerx)
+		(y ?playery)
+		(y-delta 0))
+	(frame-time ?time)
+	(surface ?surfacex ?playery
+		?width
+			&:(<= ?surfacex ?playerx)
+			&:(>= (+ ?surfacex ?width) ?playerx)
+		?)
+	(should-exit FALSE)
+	(not (new-player-y-delta ?))
+	(test (not (space-pressed ?time)))
+	=>
+	(assert
+		(new-player-y ?playery)
+		(new-player-y-delta 0)))
+
+(defrule standing-still
+	?player <- (player
+		(x ?playerx))
+	(frame-time ?time)
+	(should-exit FALSE)
+	(not (new-player-x ?))
+	(test (or
+		(and
+			(not (left-pressed ?time))
+			(not (right-pressed ?time)))
+		(and
+			(left-pressed ?time)
+			(right-pressed ?time))))
+	=>
+	(assert (new-player-x ?playerx)))
+
+(defrule move-left
+	?player <- (player
+		(x ?playerx)
+		(walk-speed ?walk-speed))
+	(frame-time ?time)
+	(should-exit FALSE)
+	(not (test (right-pressed ?time)))
+	(not (new-player-x ?))
+	(test (left-pressed ?time))
+	=>
+	(assert (new-player-x (- ?playerx (* ?time ?walk-speed)))))
+
+(defrule move-right
+	?player <- (player
+		(x ?playerx)
+		(walk-speed ?walk-speed))
+	(frame-time ?time)
+	(should-exit FALSE)
+	(not (test (left-pressed ?time)))
+	(not (new-player-x ?))
+	(test (right-pressed ?time))
+	=>
+	(assert (new-player-x (+ ?playerx (* ?time ?walk-speed)))))
+
+(defrule draw-scene-camera-center
+	?player <- (player)
+	?nx <- (new-player-x ?x)
+	?ny <- (new-player-y ?y)
+	?nyd <- (new-player-y-delta ?ydelta)
+	?f <- (frame-time ?time)
+	(camera center)
+	(should-exit FALSE)
+	=>
+	(retract ?f ?nx ?ny ?nyd)
+	(modify ?player
+		(x ?x)
+		(y ?y)
+		(y-delta ?ydelta))
+	(raylib-begin-drawing)
+		(raylib-clear-background LIGHTGRAY)
+		(raylib-begin-mode-2d 400 280 (integer ?x) (integer ?y))
+			(raylib-draw-rectangle 0 0 1000 400 LIGHTGRAY) ;background
+			(do-for-all-facts ((?s surface)) TRUE
+				(raylib-draw-rectangle (nth$ 1 ?s:implied) (nth$ 2 ?s:implied) (nth$ 3 ?s:implied) (nth$ 4 ?s:implied) GRAY))
+
+			(raylib-draw-rectangle (- (integer ?x) 20) (- (integer ?y) 40) 40 40 RED) ;player
+		(raylib-end-mode-2d)
+
+		(raylib-draw-text "Controls:" 20 20 10 BLACK)
+		(raylib-draw-text "- Right/Left to move" 40 40 10 DARKGRAY)
+		(raylib-draw-text "- Space to jump" 40 60 10 DARKGRAY)
+		(raylib-draw-text "- Mouse Wheel to Zoom in-out (not yet implemented), R to reset character" 40 80 10 DARKGRAY)
+		(raylib-draw-text "- C to change camera mode (not yet implemented)" 40 100 10 DARKGRAY)
+		(raylib-draw-text "Current camera mode:" 20 120 10 BLACK)
+	(raylib-end-drawing)
+	(assert
+		(frame-time (raylib-get-frame-time))
+		(should-exit (raylib-window-should-close))))
+
+(defrule die
+	(should-exit TRUE)
+	=>
+	(println "Done. Exiting...")
+	(raylib-close-window)
+	(exit))
+
+(reset)
+(assert
+	(player)
+	(frame-time 0)
+	(should-exit FALSE))
+(raylib-set-target-fps 60)
+(run)</div>
+  <div id="shapes-draw-rectangle-rounded.bat" class="hidden">(deffacts init
+	(screen-width 800) (screen-height 450)
+	(roundness 0.2)
+	(width 200.0)
+	(height 100.0)
+	(segments 0.0)
+	(thickness 1.0)
+	(draw FALSE TRUE FALSE)
+	(window-should-close FALSE))
+	
+(raylib-init-window 800 450 "CLIPSraylib [shapes] example - draw rectangle rounded")
+(raylib-set-target-fps 60)
+
+(defrule begin-drawing
+	(window-should-close FALSE)
+	(not (drawing))
+	=>
+	(raylib-begin-drawing)
+		(raylib-draw-fps 20 20)
+		(raylib-draw-line 560 0 560 (raylib-get-screen-height) (raylib-fade LIGHTGRAY 0.6))
+		(raylib-draw-rectangle 560 0 (- (raylib-get-screen-width) 500) (raylib-get-screen-height) (raylib-fade LIGHTGRAY 0.3))
+	(assert (drawing)))
+
+
+(defrule draw-rect
+	(drawing)
+	(draw TRUE ? ?)
+	(height ?height)
+	(width ?width)
+	(screen-height ?screen-height)
+	(screen-width ?screen-width)
+	=>
+	(raylib-draw-rectangle
+		(integer (/ (- ?screen-width ?width 250) 2))
+		(integer (/ (- ?screen-height ?height) 2))
+		(integer ?width)
+		(integer ?height)
+		(raylib-fade GOLD 0.6))
+	(assert (rectangle-drawn)))
+
+(defrule do-not-draw-rect
+	(drawing)
+	(draw FALSE ? ?)
+	=>
+	(assert (rectangle-drawn)))
+	
+(defrule draw-rounded-rect
+	(drawing)
+	(draw ? TRUE ?)
+	(height ?height)
+	(width ?width)
+	(roundness ?roundness)
+	(segments ?segments)
+	(screen-width ?screen-width)
+	(screen-height ?screen-height)
+	=>
+	(raylib-draw-rectangle-rounded
+		(/ (- ?screen-width ?width 250) 2)
+		(/ (- ?screen-height ?height) 2)
+		?width
+		?height
+		?roundness
+		(integer ?segments)
+		(raylib-fade BLUE 0.9))
+	(assert (rounded-rectangle-drawn)))
+
+(defrule do-not-draw-rounded-rect
+	(drawing)
+	(draw ? FALSE ?)
+	=>
+	(assert (rounded-rectangle-drawn)))
+	
+(defrule draw-rounded-lines
+	(drawing)
+	(draw ? ? TRUE)
+	(height ?height)
+	(width ?width)
+	(thickness ?thickness)
+	(roundness ?roundness)
+	(segments ?segments)
+	(screen-height ?screen-height)
+	(screen-width ?screen-width)
+	=>
+	(raylib-draw-rectangle-rounded-lines-ex
+		(/ (- ?screen-width ?width 250) 2)
+		(/ (- ?screen-height ?height) 2)
+		?width
+		?height
+		?roundness
+		(integer ?segments)
+		?thickness
+		RED)
+	(assert (rounded-rectangle-with-lines-drawn)))
+
+(defrule do-not-draw-rounded-lines
+	(drawing)
+	(draw ? ? FALSE)
+	=>
+	(assert (rounded-rectangle-with-lines-drawn)))
+	
+(defrule end-drawing
+	?d <- (drawing)
+	?rd <- (rectangle-drawn)
+	?rrd <- (rounded-rectangle-drawn)
+	?rrld <- (rounded-rectangle-with-lines-drawn)
+	?w <- (width ?width)
+	?h <- (height ?height)
+	?r <- (roundness ?roundness)
+	?t <- (thickness ?thickness)
+	?s <- (segments ?segments)
+	?f <- (window-should-close FALSE)
+	?dr <- (draw ?rect ?rounded ?lines)
+	=>
+	(retract ?d ?rd ?rrd ?rrld ?w ?h ?r ?t ?s ?f ?dr)
+	(assert
+		(window-should-close (raylib-window-should-close))
+		(width
+			(raylib-gui-slider-bar
+				640 40 105 20
+				"Width"
+				(format nil "%.2f" ?width)
+				?width
+				0.0
+				(float (- (raylib-get-screen-width) 300))))
+		(height
+			(raylib-gui-slider-bar
+				640 70 105 20
+				"Height"
+				(format nil "%.2f" ?height)
+				?height
+				0.0
+				(float (- (raylib-get-screen-height) 50))))
+		(roundness
+			(raylib-gui-slider-bar
+				640 140 105 20
+				"Roundness"
+				(format nil "%.2f" ?roundness)
+				?roundness
+				0.0 1.0))
+		(thickness
+			(raylib-gui-slider-bar
+				640 170 105 20
+				"Thickness"
+				(format nil "%.2f" ?thickness)
+				?thickness
+				0.0 20.0))
+		(segments
+			(raylib-gui-slider-bar
+				640 240 105 20
+				"Segments"
+				(format nil "%.2f" ?segments)
+				?segments
+				0.0 60.0))
+		(draw
+			(raylib-gui-check-box
+				640 320 20 20
+				"DrawRect"
+				?rect)
+			(raylib-gui-check-box
+				640 350 20 20
+				"DrawRoundedRect"
+				?rounded)
+			(raylib-gui-check-box
+				640 380 20 20
+				"DrawRoundedLines"
+				?lines)))
+		(raylib-clear-background WHITE)
+	(raylib-end-drawing))
+
+(defrule die
+	(window-should-close TRUE)
+	=>
+	(println "Done. Exiting...")
+	(raylib-close-window)
+	(exit))
+
+(reset)
+(run)</div>
+  <div id="shapes-logo-raylib-anim.bat" class="hidden">(raylib-init-window 800 450 "CLIPSraylib [shapes] example - raylib logo animation")
+(raylib-set-target-fps 60)
+
+(deffacts init
+	(logoPositionX (integer (- (/ (raylib-get-screen-width) 2) 128)))
+	(logoPositionY (integer (- (/ (raylib-get-screen-height) 2) 128)))
+	(framesCounter 0)
+	(lettersAppearingFramesCounter 0)
+	(lettersCount 0)
+
+	(topSideRecWidth 16)
+	(leftSideRecHeight 16)
+
+	(bottomSideRecWidth 16)
+	(rightSideRecHeight 16)
+
+	(alpha 1.0)
+	(replay FALSE)
+	(WindowShouldClose FALSE))
+
+(defrule reset-and-replay
+	(alpha ?alpha&:(<= ?alpha 0))
+	?r <- (replay TRUE)
+	=>
+	(reset))
+
+(defrule start-drawing
+	?w <- (WindowShouldClose FALSE)
+	(not (drawing))
+	=>
+	(retract ?w)
+	(assert
+		(drawing)
+		(WindowShouldClose (raylib-window-should-close)))
+	(raylib-begin-drawing)
+		(raylib-clear-background RAYWHITE))
+
+(defrule small-box-blinking-on
+	(logoPositionX ?logoPositionX)
+	(logoPositionY ?logoPositionY)
+	(drawing)
+	(not (done-drawing))
+	?f <- (framesCounter ?frames&:(< ?frames 120))
+	(WindowShouldClose FALSE)
+	(test (> (mod (/ ?frames 15) 2) 0))
+	=>
+		(raylib-draw-rectangle ?logoPositionX ?logoPositionY 16 16 BLACK)
+	(retract ?f)
+	(assert
+		(framesCounter (+ 1 ?frames))))
+
+(defrule small-box-blinking-off
+	(logoPositionX ?logoPositionX)
+	(logoPositionY ?logoPositionY)
+	(drawing)
+	(not (done-drawing))
+	?f <- (framesCounter ?frames&:(< ?frames 120))
+	(WindowShouldClose FALSE)
+	(test (= (mod (/ ?frames 15) 2) 0))
+	=>
+	(retract ?f)
+	(assert
+		(framesCounter (+ 1 ?frames))))
+
+(defrule top-and-left-bars-growing
+	(logoPositionX ?logoPositionX)
+	(logoPositionY ?logoPositionY)
+	(drawing)
+	(not (done-drawing))
+	(framesCounter 120)
+	(WindowShouldClose FALSE)
+	?t <- (topSideRecWidth ?topSideRecWidth&:(< ?topSideRecWidth 256))
+	?l <- (leftSideRecHeight ?leftSideRecHeight)
+	=>
+                (raylib-draw-rectangle ?logoPositionX ?logoPositionY ?topSideRecWidth 16 BLACK)
+                (raylib-draw-rectangle ?logoPositionX ?logoPositionY 16 ?leftSideRecHeight BLACK)
+	(retract ?t ?l)
+	(assert
+		(done-drawing)
+		(topSideRecWidth (+ ?topSideRecWidth 4))
+		(leftSideRecHeight (+ ?leftSideRecHeight 4))))
+
+(defrule bottom-and-right-bars-growing
+	(logoPositionX ?logoPositionX)
+	(logoPositionY ?logoPositionY)
+	(drawing)
+	(not (done-drawing))
+	(framesCounter 120)
+	(WindowShouldClose FALSE)
+	(topSideRecWidth 256)
+	(leftSideRecHeight ?leftSideRecHeight)
+	?b <- (bottomSideRecWidth ?bottomSideRecWidth&:(< ?bottomSideRecWidth 256))
+	?r <- (rightSideRecHeight ?rightSideRecHeight)
+	=>
+                (raylib-draw-rectangle ?logoPositionX ?logoPositionY 256 16 BLACK)
+                (raylib-draw-rectangle ?logoPositionX ?logoPositionY 16 ?leftSideRecHeight BLACK)
+
+                (raylib-draw-rectangle (+ 240 ?logoPositionX) ?logoPositionY 16 ?rightSideRecHeight BLACK)
+                (raylib-draw-rectangle ?logoPositionX (+ 240 ?logoPositionY) ?bottomSideRecWidth 16 BLACK)
+	(retract ?b ?r)
+	(assert
+		(done-drawing)
+		(bottomSideRecWidth (+ 4 ?bottomSideRecWidth))
+		(rightSideRecHeight (+ 4 ?rightSideRecHeight))))
+
+(defrule one-more-letter
+	(drawing)
+	(not (done-drawing))
+	(framesCounter 120)
+	?c <- (lettersCount ?count&:(< ?count 10))
+	?l <- (lettersAppearingFramesCounter 12)
+	(WindowShouldClose FALSE)
+	(bottomSideRecWidth 256)
+	(not (draw-letters))
+	=>
+	(retract ?c ?l)
+	(assert
+		(lettersAppearingFramesCounter 0)
+		(lettersCount (+ 1 ?count))
+		(draw-letters)))
+
+(defrule same-amount-of-letters
+	(drawing)
+	(not (done-drawing))
+	(framesCounter 120)
+	(lettersCount ?count&:(< ?count 10))
+	?l <- (lettersAppearingFramesCounter ?frames&~12)
+	(WindowShouldClose FALSE)
+	(bottomSideRecWidth 256)
+	(not (draw-letters))
+	=>
+	(retract ?l)
+	(assert
+		(draw-letters)
+		(lettersAppearingFramesCounter (+ 1 ?frames))))
+
+(defrule letters-appearing
+	(logoPositionX ?logoPositionX)
+	(logoPositionY ?logoPositionY)
+	(drawing)
+	(not (done-drawing))
+	(framesCounter 120)
+	(lettersCount ?lettersCount)
+	(WindowShouldClose FALSE)
+	(bottomSideRecWidth 256)
+	(rightSideRecHeight ?rightSideRecHeight)
+	(leftSideRecHeight ?leftSideRecHeight)
+	(alpha ?alpha&:(> ?alpha 0))
+	(or
+		(test (= ?lettersCount 10))
+		(exists (draw-letters)))
+	=>
+                (raylib-draw-rectangle ?logoPositionX ?logoPositionY 256 16 (raylib-fade BLACK ?alpha))
+                (raylib-draw-rectangle ?logoPositionX (+ ?logoPositionY 16) 16 (- ?leftSideRecHeight 32) (raylib-fade BLACK ?alpha))
+
+                (raylib-draw-rectangle (+ 240 ?logoPositionX) (+ 16 ?logoPositionY) 16 (- ?rightSideRecHeight 32) (raylib-fade BLACK ?alpha))
+                (raylib-draw-rectangle ?logoPositionX (+ 240 ?logoPositionY) 256 16 (raylib-fade BLACK ?alpha))
+
+		(raylib-draw-rectangle
+			(integer (- (/ (raylib-get-screen-width) 2) 112))
+			(integer (- (/ (raylib-get-screen-height) 2) 112))
+			224 224 (raylib-fade RAYWHITE ?alpha))
+
+		(raylib-draw-text
+			(sub-string 0 ?lettersCount raylib)
+			(integer (- (/ (raylib-get-screen-width) 2) 44))
+			(integer (+ (/ (raylib-get-screen-height) 2) 48))
+			50
+			(raylib-fade BLACK ?alpha))
+	(assert (ready-to-fade)))
+
+(defrule wait-to-fade
+	(lettersCount ~10)
+	(alpha ?alpha&:(> ?alpha 0))
+	(drawing)
+	(not (done-drawing))
+	(ready-to-fade)
+	?d <- (draw-letters)
+	=>
+	(retract ?d)
+	(assert (done-drawing)))
+
+(defrule fade-out
+	(lettersCount 10)
+	?a <- (alpha ?alpha&:(> ?alpha 0))
+	(drawing)
+	(not (done-drawing))
+	?r <- (ready-to-fade)
+	=>
+	(retract ?a ?r)
+	(assert
+		(alpha (- ?alpha 0.02))
+		(done-drawing)))
+
+(defrule describe-replay
+	(lettersCount 10)
+	(drawing)
+	(not (done-drawing))
+	(alpha ?alpha&:(<= ?alpha 0))
+	?r <- (replay FALSE)
+	=>
+		(raylib-draw-text "[R] REPLAY" 340 200 20 GRAY)
+	(retract ?r)
+	(assert
+		(done-drawing)
+		(replay (raylib-is-key-pressed KEY_R))))
+
+(defrule end-drawing
+	?d <- (drawing)
+	?dd <- (done-drawing)
+	=>
+	(raylib-end-drawing)
+	(retract ?d ?dd))
+
+(defrule die
+	(WindowShouldClose TRUE)
+	=>
+	(println "Done. Exiting...")
+	(raylib-close-window)
+	(exit))
+
+(reset)
+(run)</div>
+  <div id="textures-fog-of-war.bat" class="hidden">(deffacts pixels
+	(map-tile-size 32)
+	(player-size 16)
+	(player-tile-visibility 2))
+
+(deffacts map
+	(tiles-x 25)
+	(tiles-y 15))
+
+(deffacts player
+	(player-position 180 130))
+
+(deffacts init
+	(texture (raylib-load-render-texture 25 15))
+	(window-should-close FALSE)
+	(KEY_RIGHT FALSE)
+	(KEY_LEFT FALSE)
+	(KEY_DOWN FALSE)
+	(KEY_UP FALSE))
+
+(raylib-init-window 800 450 "CLIPSraylib [textures] example - fog of war")
+(raylib-set-target-fps 60)
+
+(defrule init
+	(declare (salience 1))
+	(texture ? ?id ?width ?height ?mipmaps ?format ? ? ? ? ?)
+	=>
+	(raylib-set-texture-filter
+		?id ?width ?height ?mipmaps ?format TEXTURE_FILTER_BILINEAR))
+
+(defrule determine-player-tile-x-y
+	(map-tile-size ?MAP_TILE_SIZE)
+	(player-position ?x ?y)
+	=>
+	(assert
+		(player-tile-x (integer (/ (+ ?x (/ ?MAP_TILE_SIZE 2)) ?MAP_TILE_SIZE)))
+		(player-tile-y (integer (/ (+ ?y (/ ?MAP_TILE_SIZE 2)) ?MAP_TILE_SIZE)))))
+
+(defrule move-right
+	(tiles-x ?tiles-x)
+	(map-tile-size ?map-tile-size)
+	(player-size ?player-size)
+	?f <- (KEY_RIGHT TRUE)
+	?p <- (player-position ?x&:(< (+ ?x ?player-size) (* ?tiles-x ?map-tile-size)) ?y)
+	?ptx <- (player-tile-x ?)
+	?pty <- (player-tile-y ?)
+	=>
+	(retract ?f ?p ?ptx ?pty)
+	(assert
+		(KEY_RIGHT FALSE)
+		(player-position (+ 5 ?x) ?y)))
+
+(defrule cannot-move-right
+	(tiles-x ?tiles-x)
+	(map-tile-size ?map-tile-size)
+	(player-size ?player-size)
+	?f <- (KEY_RIGHT TRUE)
+	?p <- (player-position ?x&:(>= (+ ?x ?player-size) (* ?tiles-x ?map-tile-size)) ?y)
+	?ptx <- (player-tile-x ?)
+	?pty <- (player-tile-y ?)
+	=>
+	(retract ?f ?p ?ptx ?pty)
+	(assert
+		(KEY_RIGHT FALSE)
+		(player-position (* ?tiles-x ?map-tile-size) ?y)))
+
+(defrule move-left
+	(tiles-x ?tiles-x)
+	(map-tile-size ?map-tile-size)
+	(player-size ?player-size)
+	?f <- (KEY_LEFT TRUE)
+	?p <- (player-position ?x&:(> (+ ?x ?player-size) 0) ?y)
+	?ptx <- (player-tile-x ?)
+	?pty <- (player-tile-y ?)
+	=>
+	(retract ?f ?p ?ptx ?pty)
+	(assert
+		(KEY_LEFT FALSE)
+		(player-position (- ?x 5) ?y)))
+
+(defrule cannot-move-left
+	(tiles-x ?tiles-x)
+	(map-tile-size ?map-tile-size)
+	(player-size ?player-size)
+	?f <- (KEY_LEFT TRUE)
+	?p <- (player-position ?x&:(<= (+ ?x ?player-size) 0) ?y)
+	?ptx <- (player-tile-x ?)
+	?pty <- (player-tile-y ?)
+	=>
+	(retract ?f ?p ?ptx ?pty)
+	(assert
+		(KEY_LEFT FALSE)
+		(player-position 0 ?y)))
+
+(defrule move-down
+	(tiles-y ?tiles-y)
+	(map-tile-size ?map-tile-size)
+	(player-size ?player-size)
+	?f <- (KEY_DOWN TRUE)
+	?p <- (player-position ?x ?y&:(< (+ ?y ?player-size) (* ?tiles-y ?map-tile-size)))
+	?ptx <- (player-tile-x ?)
+	?pty <- (player-tile-y ?)
+	=>
+	(retract ?f ?p ?ptx ?pty)
+	(assert
+		(KEY_DOWN FALSE)
+		(player-position ?x (+ 5 ?y))))
+
+(defrule cannot-move-down
+	(tiles-y ?tiles-y)
+	(map-tile-size ?map-tile-size)
+	(player-size ?player-size)
+	?f <- (KEY_DOWN TRUE)
+	?p <- (player-position ?x ?y&:(>= (+ ?y ?player-size) (* ?tiles-y ?map-tile-size)))
+	?ptx <- (player-tile-x ?)
+	?pty <- (player-tile-y ?)
+	=>
+	(retract ?f ?p ?ptx ?pty)
+	(assert
+		(KEY_DOWN FALSE)
+		(player-position ?x (* ?tiles-y ?map-tile-size))))
+
+(defrule move-up
+	(tiles-y ?tiles-y)
+	(player-size ?player-size)
+	?f <- (KEY_UP TRUE)
+	?p <- (player-position ?x ?y&:(> (+ ?y ?player-size) 0))
+	?ptx <- (player-tile-x ?)
+	?pty <- (player-tile-y ?)
+	=>
+	(retract ?f ?p ?ptx ?pty)
+	(assert
+		(KEY_UP FALSE)
+		(player-position ?x (- ?y 5))))
+
+(defrule cannot-move-up
+	(tiles-y ?tiles-y)
+	(player-size ?player-size)
+	?f <- (KEY_UP TRUE)
+	?p <- (player-position ?x ?y&:(<= (+ ?y ?player-size) 0))
+	?ptx <- (player-tile-x ?)
+	?pty <- (player-tile-y ?)
+	=>
+	(retract ?f ?p ?ptx ?pty)
+	(assert
+		(KEY_UP FALSE)
+		(player-position ?x 0)))
+
+(defrule set-unseen-tile-to-seen
+	?f <- (tile ?x ?y ?blue ~1)
+	(player-tile-visibility ?player-tile-visibility)
+	(player-tile-y ?player-tile-y)
+	(player-tile-x ?player-tile-x)
+	(and
+		(test	(>= ?y (- ?player-tile-y ?player-tile-visibility)))
+		(test	(<= ?y (+ ?player-tile-y ?player-tile-visibility)))
+		(test	(>= ?x (- ?player-tile-x ?player-tile-visibility)))
+		(test	(<= ?x (+ ?player-tile-x ?player-tile-visibility))))
+	=>
+	(retract ?f)
+	(assert (tile ?x ?y ?blue 1)))
+
+(defrule set-previous-seen-tile-to-partial-fog
+	?f <- (tile ?x ?y ?blue 1)
+	(player-tile-visibility ?player-tile-visibility)
+	(player-tile-y ?player-tile-y)
+	(player-tile-x ?player-tile-x)
+	(or
+		(test	(< ?y (- ?player-tile-y ?player-tile-visibility)))
+		(test	(> ?y (+ ?player-tile-y ?player-tile-visibility)))
+		(test	(< ?x (- ?player-tile-x ?player-tile-visibility)))
+		(test	(> ?x (+ ?player-tile-x ?player-tile-visibility))))
+	=>
+	(retract ?f)
+	(assert (tile ?x ?y ?blue 2)))
+
+(defrule render
+	(texture ?id ?tid ?twidth ?theight ?tmipmaps ?tformat ?did ?dwidth ?dheight ?dmipmaps ?dformat)
+	(map-tile-size ?MAP_TILE_SIZE)
+	(player-size ?player-size)
+	(player-position ?player-position-x ?player-position-y)
+	(player-tile-visibility ?player-tile-visibility)
+	(tiles-x ?tiles-x)
+	(tiles-y ?tiles-y)
+	(player-tile-x ?player-tile-x)
+	(player-tile-y ?player-tile-y)
+	?w <- (window-should-close FALSE)
+	?r <- (KEY_RIGHT FALSE)
+	?l <- (KEY_LEFT FALSE)
+	?d <- (KEY_DOWN FALSE)
+	?u <- (KEY_UP FALSE)
+	(forall
+		(tile ?x ?y ? 1)
+		(and
+			(test (>= ?y (- ?player-tile-y ?player-tile-visibility)))
+			(test (<= ?y (+ ?player-tile-y ?player-tile-visibility)))
+			(test (>= ?x (- ?player-tile-x ?player-tile-visibility)))
+			(test (<= ?x (+ ?player-tile-x ?player-tile-visibility)))))
+	(forall
+		(tile ?x ?y ? 0|2)
+		(or
+			(test	(< ?y (- ?player-tile-y ?player-tile-visibility)))
+			(test	(> ?y (+ ?player-tile-y ?player-tile-visibility)))
+			(test	(< ?x (- ?player-tile-x ?player-tile-visibility)))
+			(test	(> ?x (+ ?player-tile-x ?player-tile-visibility)))))
+	=>
+	(raylib-begin-texture-mode ?id ?tid ?twidth ?theight ?tmipmaps ?tformat ?did ?dwidth ?dheight ?dmipmaps ?dformat)
+	    (raylib-clear-background BLANK)
+		(do-for-all-facts ((?t tile)) (= 0 (nth$ 4 ?t:implied))
+			(raylib-draw-rectangle (nth$ 1 ?t:implied) (nth$ 2 ?t:implied) 1 1 BLACK))
+		(do-for-all-facts ((?t tile)) (= 2 (nth$ 4 ?t:implied))
+			(raylib-draw-rectangle (nth$ 1 ?t:implied) (nth$ 2 ?t:implied) 1 1 (raylib-fade BLACK 0.8)))
+	(raylib-end-texture-mode)
+
+	(raylib-begin-drawing)
+		(raylib-clear-background RAYWHITE)
+		(do-for-all-facts ((?t tile)) (= 0 (nth$ 3 ?t:implied))
+			(raylib-draw-rectangle (* (nth$ 1 ?t:implied)  ?MAP_TILE_SIZE) (* (nth$ 2 ?t:implied) ?MAP_TILE_SIZE) ?MAP_TILE_SIZE ?MAP_TILE_SIZE BLUE)
+			(raylib-draw-rectangle-lines (* (nth$ 1 ?t:implied)  ?MAP_TILE_SIZE) (* (nth$ 2 ?t:implied) ?MAP_TILE_SIZE) ?MAP_TILE_SIZE ?MAP_TILE_SIZE (raylib-fade DARKBLUE 0.5)))
+		(do-for-all-facts ((?t tile)) (= 1 (nth$ 3 ?t:implied))
+			(raylib-draw-rectangle (* (nth$ 1 ?t:implied)  ?MAP_TILE_SIZE) (* (nth$ 2 ?t:implied) ?MAP_TILE_SIZE) ?MAP_TILE_SIZE ?MAP_TILE_SIZE (raylib-fade BLUE 0.9))
+			(raylib-draw-rectangle-lines (* (nth$ 1 ?t:implied)  ?MAP_TILE_SIZE) (* (nth$ 2 ?t:implied) ?MAP_TILE_SIZE) ?MAP_TILE_SIZE ?MAP_TILE_SIZE (raylib-fade DARKBLUE 0.5)))
+
+		(raylib-draw-rectangle ?player-position-x ?player-position-y ?player-size ?player-size RED)
+
+		(raylib-draw-texture-pro ?tid ?twidth ?theight ?tmipmaps ?tformat 0 0 ?twidth (* -1 ?theight)
+			0 0 (* ?MAP_TILE_SIZE ?tiles-x) (* ?MAP_TILE_SIZE ?tiles-y)
+			0 0 0 WHITE)
+
+		(raylib-draw-text (format nil "Current tile: [%d, %d]" ?player-tile-x ?player-tile-y) 10 10 20 RAYWHITE)
+		(raylib-draw-text "ARROW KEYS to move" 10 (- (raylib-get-screen-height) 25) 20 RAYWHITE)
+	(raylib-end-drawing)
+
+	(retract ?w ?r ?l ?d ?u)
+	(assert
+		(window-should-close (raylib-window-should-close))
+		(KEY_RIGHT (raylib-is-key-down KEY_RIGHT))
+		(KEY_LEFT (raylib-is-key-down KEY_LEFT))
+		(KEY_DOWN (raylib-is-key-down KEY_DOWN))
+		(KEY_UP (raylib-is-key-down KEY_UP))))
+
+(defrule die
+	(window-should-close TRUE)
+	=>
+	(println "Done. Exiting...")
+	(raylib-close-window)
+	(exit))
+
+(reset)
+(loop-for-count (?x 0 25) do
+	(loop-for-count (?y 0 15) do
+		(assert (tile ?x ?y (random 0 1) 0))))
+(run)</div>
+  <div id="shapes-collision-area.bat" class="hidden">(raylib-init-window 800 450 "CLIPSraylib [shapes] example - collision area")
+(raylib-set-target-fps 60)
+
+(deffacts init
+	(box-a 10 175 200 100)
+	(box-a-speed 4)
+	(box-b 370 175 60 60)
+	(pause FALSE)
+	(unpause FALSE)
+	(window-should-close FALSE)
+	(screen-upper-limit 40))
+
+(defrule begin-render
+	(box-a ?ax ?ay ?awidth ?aheight)
+	(box-b ?bx ?by ?bwidth ?bheight)
+	(screen-upper-limit ?u)
+	(not (drawing))
+	?w <- (window-should-close FALSE)
+	=>
+	(retract ?w)
+	(assert
+		(drawing)
+		(window-should-close (raylib-window-should-close))
+		(pause (raylib-is-key-pressed KEY_SPACE)))
+	(raylib-begin-drawing)
+		(raylib-draw-text "Press SPACE to PAUSE/RESUME" 20 (- (raylib-get-screen-height) 35) 20 LIGHTGRAY)
+		(raylib-draw-rectangle ?ax ?ay ?awidth ?aheight GOLD)
+		(raylib-draw-rectangle ?bx ?by ?bwidth ?bheight BLUE))
+
+(defrule draw-no-collision
+	(drawing)
+	(box-a ?ax ?ay ?awidth ?aheight)
+	(box-b ?bx ?by ?bwidth ?bheight) (screen-upper-limit ?u)
+	(window-should-close FALSE)
+	(test (not (raylib-check-collision-recs
+		?ax ?ay ?awidth ?aheight
+		?bx ?by ?bwidth ?bheight)))
+	=>
+		(raylib-draw-rectangle 0 0 (raylib-get-screen-width) ?u BLACK)
+		(raylib-draw-fps 10 10)
+		(raylib-clear-background RAYWHITE)
+	(raylib-end-drawing)
+	(assert (done)))
+
+(defrule draw-collision
+	(drawing)
+	(box-a ?ax ?ay ?awidth ?aheight)
+	(box-b ?bx ?by ?bwidth ?bheight)
+	(screen-upper-limit ?u)
+	(window-should-close FALSE)
+	(test (raylib-check-collision-recs
+		?ax ?ay ?awidth ?aheight
+		?bx ?by ?bwidth ?bheight))
+	=>
+		(raylib-draw-rectangle 0 0 (raylib-get-screen-width) ?u RED)
+		(raylib-draw-text
+			"COLLISION!"
+			(integer (-
+				(/ (raylib-get-screen-width) 2)
+				(/ (raylib-measure-text "COLLISION!" 20) 2)))
+			(integer (- (/ ?u 2) 10))
+			20
+			BLACK)
+	(assert (collision-rectangle (raylib-get-collision-rec
+		?ax ?ay ?awidth ?aheight
+		?bx ?by ?bwidth ?bheight))))
+
+(defrule draw-collision-rectangle
+	(drawing)
+	(screen-upper-limit ?u)
+	(window-should-close FALSE)
+	?c <- (collision-rectangle ?x ?y ?width ?height)
+	=>
+		(raylib-draw-text
+			(format nil "Collision Area: %d" (* ?width ?height))
+		       	(integer (- (/ (raylib-get-screen-width) 2) 100))
+			(integer (+ ?u 10))
+			20
+			BLACK)
+		(raylib-draw-rectangle
+			(integer ?x)
+			(integer ?y)
+			(integer ?width)
+			(integer ?height)
+			LIME)
+		(raylib-draw-fps 10 10)
+		(raylib-clear-background RAYWHITE)
+	(raylib-end-drawing)
+	(assert (done))
+	(retract ?c))
+
+(defrule bounce-a-off-wall
+	(box-a ?ax ?ay ?awidth ?aheight)
+	?s <- (box-a-speed ?aspeed)
+	(drawing)
+	(done)
+	(window-should-close FALSE)
+	(not (pause TRUE))
+	(test (or
+		(and (> ?aspeed 0) (>= ?ax (- (raylib-get-screen-width) ?awidth)))
+		(and (< ?aspeed 0) (<= ?ax 0))))
+	=>
+	(retract ?s)
+	(assert (box-a-speed (* -1 ?aspeed))))
+
+(defrule recalculate-box-positions
+	?a <- (box-a ?ax ?ay ?awidth ?aheight)
+	?b <- (box-b ?bx ?by ?bwidth ?bheight)
+	(box-a-speed ?aspeed)
+	?d <- (drawing)
+	?dd <- (done)
+	(not (pause TRUE))
+	(window-should-close FALSE)
+	(test (or
+		(and (> ?aspeed 0) (< ?ax (- (raylib-get-screen-width) ?awidth)))
+		(and (< ?aspeed 0) (> ?ax 0))))
+	=>
+	(retract ?a ?b ?d ?dd)
+	(assert
+		(box-a
+			(+ ?ax ?aspeed)
+			?ay
+			?awidth
+			?aheight)
+		(box-b
+			(integer (- (raylib-get-mouse-x) (/ ?bwidth 2)))
+			(integer (- (raylib-get-mouse-y) (/ ?bheight 2)))
+			?bwidth ?bheight)))
+
+(defrule pause-and-wait
+	(pause TRUE)
+	?unpause <- (unpause FALSE)
+	?w <- (window-should-close FALSE)
+	=>
+	(retract ?unpause ?w)
+	(assert
+		(window-should-close (raylib-window-should-close))
+		(unpause (raylib-is-key-pressed KEY_SPACE))))
+
+(defrule unpause
+	?p <- (pause TRUE)
+	?unpause <- (unpause TRUE)
+	?w <- (window-should-close FALSE)
+	=>
+	(retract ?p ?unpause ?w)
+	(assert
+		(window-should-close (raylib-window-should-close))
+		(unpause FALSE)))
+
+(defrule die
+	(window-should-close TRUE)
+	=>
+	(println "Done. Exiting...")
+	(raylib-close-window)
+	(exit))
+
+(reset)
+(run)</div>
+  <div id="textures-sprite-anim.bat" class="hidden">(deffacts init
+	(texture (raylib-load-texture "scarfy.png"))
+	(total-frames 6)
+	(current-frame 0)
+	(frames-counter 0)
+	(frames-speed 8)
+	(window-should-close FALSE)
+	(increase-frame-speed FALSE)
+	(decrease-frame-speed FALSE))
+
+(defrule render
+	(total-frames ?total)
+	(frames-speed ?frames-speed)
+	(current-frame ?current-frame&:(<= ?current-frame ?total))
+	(current-x ?x)
+	?f <- (frames-counter ?frames-counter&:(< ?frames-counter (/ 60 ?frames-speed)))
+	(texture ?id ?width ?height ?mipmaps ?format)
+	?w <- (window-should-close FALSE)
+	?i <- (increase-frame-speed FALSE)
+	?d <- (decrease-frame-speed FALSE)
+	=>
+	(retract ?f ?w ?i ?d)
+	(bind ?start-x (/ (- (raylib-get-screen-width) ?width) 2))
+	(raylib-begin-drawing)
+		(raylib-draw-texture ?id ?width ?height ?mipmaps ?format ?start-x 40 WHITE)
+		(raylib-draw-rectangle-lines ?start-x 40 ?width ?height LIME)
+		(raylib-draw-rectangle-lines (+ ?start-x ?x) 40 (/ ?width ?total) ?height RED)
+
+		(raylib-draw-text "FRAME SPEED: " 165 210 10 DARKGRAY)
+		(raylib-draw-text (format nil "%02d FPS" ?frames-speed) 575 210 10 DARKGRAY)
+		(raylib-draw-text "PRESS RIGHT/LEFT KEYS to CHANGE SPEED!" 290 240 10 DARKGRAY)
+		(loop-for-count (?cnt 0 14) do
+			(if (<= (+ ?cnt 1) ?frames-speed) then
+				(raylib-draw-rectangle (+ (* ?cnt 21) 250) 205 20 20 RED))
+			(raylib-draw-rectangle-lines (+ (* ?cnt 21) 250) 205 20 20 MAROON)
+		)
+		(raylib-draw-texture-rec
+			?id ?width ?height ?mipmaps ?format ; texture
+			?x 0 (/ ?width ?total) ?height ; rectangle
+			(- (/ (raylib-get-screen-width) 2) (/ (/ ?width ?total) 2)) 280 ; position
+			WHITE)
+
+		(raylib-draw-text "(c) Scarfy sprite by Eiden Marsal" (- (raylib-get-screen-width) 200) (- (raylib-get-screen-height) 20) 10 GRAY)
+
+		(assert (frames-counter (+ ?frames-counter 1))
+			(window-should-close (raylib-window-should-close))
+			(decrease-frame-speed (raylib-is-key-pressed KEY_LEFT))
+			(increase-frame-speed (raylib-is-key-pressed KEY_RIGHT)))
+		(raylib-clear-background RAYWHITE)
+	(raylib-end-drawing))
+
+(defrule next-frame
+	?c <- (current-frame ?current-frame)
+	?x <- (current-x ?)
+	(frames-speed ?frames-speed)
+	?f <- (frames-counter ?frames-counter&:(>= ?frames-counter (/ 60 ?frames-speed)))
+	=>
+	(retract ?c ?f ?x)
+	(assert (current-frame (+ 1 ?current-frame))
+		(frames-counter 0)))
+
+(defrule determine-current-x
+	(total-frames ?total)
+	(current-frame ?current-frame&~?total)
+	(texture ?id ?width ?height ?mipmaps ?format)
+	=>
+	(assert (current-x (* ?current-frame (/ ?width ?total)))))
+
+(defrule reset-current-frame
+	(total-frames ?total)
+	?c <- (current-frame ?total)
+	=>
+	(retract ?c)
+	(assert (current-frame 0)))
+
+(defrule increase-frame-speed
+	?f <- (increase-frame-speed TRUE)
+	?ff <- (frames-speed ?frames-speed&:(< ?frames-speed 15))
+	=>
+	(retract ?f ?ff)
+	(assert (frames-speed (+ ?frames-speed 1))
+		(increase-frame-speed FALSE)))
+
+(defrule cannot-increase-frame-speed
+	?f <- (increase-frame-speed TRUE)
+	(frames-speed 15)
+	=>
+	(retract ?f)
+	(assert (increase-frame-speed FALSE)))
+
+(defrule decrease-frame-speed
+	?f <- (decrease-frame-speed TRUE)
+	?ff <- (frames-speed ?frames-speed&:(> ?frames-speed 1))
+	=>
+	(retract ?f ?ff)
+	(assert (frames-speed (- ?frames-speed 1))
+		(decrease-frame-speed FALSE)))
+
+(defrule cannot-decrease-frame-speed
+	?f <- (decrease-frame-speed TRUE)
+	(frames-speed 1)
+	=>
+	(retract ?f)
+	(assert (decrease-frame-speed FALSE)))
+
+(defrule die
+	(window-should-close TRUE)
+	=>
+	(println "Done. Exiting...")
+	(raylib-close-window)
+	(exit))
+
+(raylib-init-window 800 450 "CLIPSraylib [texture] example - sprite anim")
+(raylib-set-target-fps 60)
+(reset)
+(run)</div>
+  <div id="textures-multiple-sprite-anim.bat" class="hidden">(deftemplate texture
+	(slot id)
+	(slot width)
+	(slot height)
+	(slot mipmaps)
+	(slot format)
+	(slot total-frames)
+	(slot frames-counter (default 0))
+	(slot current-frame (default 0))
+	(slot frames-speed (default 8))
+	(slot current-x (default -1))
+	(slot x (default -1)))
+
+(deffacts init
+	(frame 0)
+	(total-width-of-textures 0)
+	(number-of-textures 0)
+	(texture-path "scarfy.png" 6)
+	(texture-path "spinny-orange.png" 11)
+	(texture-path "blobbyboiwalking.png" 7)
+	(texture-path "purple hero running.png" 13)
+	(window-should-close FALSE)
+	(mouse-position -1 -1)
+	(decrease-frame-speed FALSE)
+	(increase-frame-speed FALSE))
+
+(defrule texture-path-to-texture
+	?fff <- (total-width-of-textures ?tw)
+	?ff <- (number-of-textures ?number)
+	?f <- (texture-path ?path ?total-frames)
+	=>
+	(retract ?fff ?ff ?f)
+	(bind ?texture (raylib-load-texture ?path))
+	(assert
+		(number-of-textures (+ 1 ?number))
+		(total-width-of-textures (+ ?tw (/ (nth$ 2 ?texture) ?total-frames)))
+		(texture
+			(id (nth$ 1 ?texture))
+			(width (nth$ 2 ?texture))
+			(height (nth$ 3 ?texture))
+			(mipmaps (nth$ 4 ?texture))
+			(format (nth$ 5 ?texture))
+			(total-frames ?total-frames))))
+
+(defrule current-texture
+	?t <- (texture)
+	(not (current-texture ?))
+	=>
+	(assert (current-texture ?t)))
+
+(defrule render
+	(total-width-of-textures ?tw)
+	(number-of-textures ?number-of-textures)
+	(window-should-close FALSE)
+	?t <- (texture
+		(id ?id)
+		(width ?width)
+		(height ?height)
+		(mipmaps ?mipmaps)
+		(format ?format)
+		(total-frames ?total-frames)
+		(frames-speed ?frames-speed)
+		(current-x ?current-x))
+	(current-texture ?t)
+	?m <- (mouse-position ? ?)
+	?f <- (frame ?frame)
+	?i <- (increase-frame-speed FALSE)
+	?d <- (decrease-frame-speed FALSE)
+	(not (texture-path ? ?))
+	(forall
+		(texture
+			(current-frame ?current-frame)
+			(total-frames ?tf)
+			(frames-speed ?fs)
+			(frames-counter ?frames-counter)
+			(current-x ?x))
+		(test (<> ?x -1))
+		(test (<= ?current-frame ?tf))
+		(test (< ?frames-counter (/ 60 ?fs))))
+	=>
+	(retract ?f ?m ?i ?d)
+	(bind ?start-x (/ (- (raylib-get-screen-width) ?width) 2))
+	(raylib-begin-drawing)
+		(raylib-draw-texture ?id ?width ?height ?mipmaps ?format ?start-x 40 WHITE)
+		(raylib-draw-rectangle-lines ?start-x 40 ?width ?height LIME)
+		(raylib-draw-rectangle-lines (+ ?start-x ?current-x) 40 (/ ?width ?total-frames) ?height RED)
+
+		(raylib-draw-text "FRAME SPEED: " 165 210 10 DARKGRAY)
+		(raylib-draw-text (format nil "%02d FPS" ?frames-speed) 575 210 10 DARKGRAY)
+		(raylib-draw-text "PRESS RIGHT/LEFT KEYS to CHANGE SPEED!" 290 240 10 DARKGRAY)
+		(raylib-draw-text "LEFT CLICK MOUSE to CHANGE CURRENT TEXTURE!" 290 270 10 DARKGRAY)
+		(loop-for-count (?cnt 0 14) do
+			(if (<= (+ ?cnt 1) ?frames-speed) then
+				(raylib-draw-rectangle (integer (+ (* ?cnt 21) 250)) 205 20 20 RED))
+			(raylib-draw-rectangle-lines (integer (+ (* ?cnt 21) 250)) 205 20 20 MAROON)
+		)
+		(bind ?start-x (/ (- (raylib-get-screen-width) ?tw) 2))
+		(do-for-all-facts ((?texture texture)) TRUE
+			(if (eq ?texture ?t)
+				then
+				(raylib-draw-rectangle-lines ?start-x 280 (/ ?texture:width ?texture:total-frames) ?texture:height RED)
+				else
+				(raylib-draw-rectangle-lines ?start-x 280 (/ ?texture:width ?texture:total-frames) ?texture:height LIGHTGRAY)
+			)
+			(raylib-draw-texture-rec
+				?texture:id ?texture:width ?texture:height ?texture:mipmaps ?texture:format
+				?texture:current-x 0 (/ ?texture:width ?texture:total-frames) ?texture:height
+				?start-x 280
+				WHITE)
+			(modify ?texture
+				(x ?start-x)
+				(current-x -1)
+				(frames-counter (+ ?texture:frames-counter 1)))
+			(bind ?start-x (+ ?start-x (/ ?texture:width ?texture:total-frames)))
+		)
+
+		(raylib-draw-text "(c) Scarfy sprite by Eiden Marsal" (- (raylib-get-screen-width) 200) (- (raylib-get-screen-height) 20) 10 GRAY)
+
+		(assert
+			(frame (+ ?frame 1))
+			(window-should-close (raylib-window-should-close))
+			(decrease-frame-speed (raylib-is-key-pressed KEY_LEFT))
+			(increase-frame-speed (raylib-is-key-pressed KEY_RIGHT))
+			(change-current-texture (raylib-is-mouse-button-pressed MOUSE_BUTTON_LEFT))
+			(mouse-position (raylib-get-mouse-position)))
+		(raylib-clear-background RAYWHITE)
+	(raylib-end-drawing))
+
+(defrule change-current-texture
+	?f <- (texture
+		(x ?x)
+		(width ?width)
+		(height ?height)
+		(total-frames ?t))
+	(mouse-position ?mouse-x ?mouse-y)
+	?ct <- (current-texture ?)
+	?cct <- (change-current-texture TRUE)
+	(test (raylib-check-collision-point-rec ?mouse-x ?mouse-y ?x 280 (/ ?width ?t) ?height))
+	=>
+	(retract ?ct ?cct)
+	(assert
+		(current-texture ?f)
+		(change-current-texture FALSE)))
+
+(defrule misclick
+	(mouse-position ?mouse-x ?mouse-y)
+	?cct <- (change-current-texture TRUE)
+	(forall
+		(texture
+			(x ?x)
+			(width ?width)
+			(height ?height)
+			(total-frames ?t))
+		(test (not (raylib-check-collision-point-rec ?mouse-x ?mouse-y ?x 280 (/ ?width ?t) ?height))))
+	=>
+	(retract ?cct)
+	(assert (change-current-texture FALSE)))
+
+(defrule next-frame
+	?f <- (texture
+		(current-frame ?current-frame)
+		(frames-speed ?frames-speed)
+		(frames-counter ?frames-counter&:(>= ?frames-counter (/ 60 ?frames-speed))))
+	=>
+	(modify ?f
+		(frames-counter 0)
+		(current-frame (+ 1 ?current-frame))))
+
+(defrule determine-current-x
+	?f <- (texture
+		(total-frames ?total)
+		(current-frame ?current-frame&~?total)
+		(width ?width)
+		(current-x -1))
+	=>
+	(modify ?f (current-x (* ?current-frame (/ ?width ?total)))))
+
+(defrule reset-current-frame
+	?f <- (texture
+		(total-frames ?total)
+		(current-frame ?total))
+	=>
+	(modify ?f
+		(current-frame 0)))
+
+(defrule increase-frame-speed
+	?ff <- (increase-frame-speed TRUE)
+	?f <- (texture
+		(frames-speed ?frames-speed&:(< ?frames-speed 15)))
+	(current-texture ?f)
+	=>
+	(retract ?ff)
+	(modify ?f
+		(frames-speed (+ ?frames-speed 1)))
+	(assert (increase-frame-speed FALSE)))
+
+(defrule cannot-increase-frame-speed
+	?ff <- (increase-frame-speed TRUE)
+	?f <- (texture
+		(frames-speed 15))
+	(current-texture ?f)
+	=>
+	(retract ?ff)
+	(assert (increase-frame-speed FALSE)))
+
+(defrule decrease-frame-speed
+	?ff <- (decrease-frame-speed TRUE)
+	?f <- (texture
+		(frames-speed ?frames-speed&:(> ?frames-speed 1)))
+	(current-texture ?f)
+	=>
+	(retract ?ff)
+	(modify ?f
+		(frames-speed(- ?frames-speed 1)))
+	(assert (decrease-frame-speed FALSE)))
+
+(defrule cannot-decrease-frame-speed
+	?ff <- (decrease-frame-speed TRUE)
+	?f <- (texture
+		(frames-speed 1))
+	(current-texture ?f)
+	=>
+	(retract ?ff)
+	(assert (decrease-frame-speed FALSE)))
+
+(defrule die
+	(window-should-close TRUE)
+	=>
+	(println "Done. Exiting...")
+	(raylib-close-window)
+	(exit))
+
+(raylib-init-window 800 450 "CLIPSraylib [texture] example - sprite anim")
+(raylib-set-target-fps 60)
+(reset)
+(run)</div>
+  <script src="CLIPSraylib/clips"></script>
+  <script>
+Module.canvas = document.getElementById('canvas');
+Module.onRuntimeInitialized = function() {
+	// Fetch the image from a URL as an ArrayBuffer
+	['blobbyboiwalking.png', 'purple hero running.png', 'scarfy.png', 'spinny-orange.png'].forEach(url => {
+		fetch(url)
+			.then(response => response.arrayBuffer())
+			.then(buffer => {
+				const imageData = new Uint8Array(buffer);
+				FS.writeFile(url, imageData);
+			})
+			.catch(err => console.error(`Error fetching or saving ${url}`, err));
+	})
+	const spaceBarDisable = function(e) {
+	  // Check if the space bar is pressed
+	  if (
+		e.code === "Space" || e.keyCode === 32 ||
+		e.code === "ArrowLeft" || e.keyCode === 37 ||
+		e.code === "ArrowRight" || e.keyCode === 39 ||
+		e.code === "ArrowUp" || e.keyCode === 38 ||
+		e.code === "ArrowDown" || e.keyCode === 40
+	     ) {
+	    // Allow the space bar if you're in an input, textarea, or contentEditable element
+	    const tag = e.target.tagName;
+	    if (tag !== "INPUT" && tag !== "TEXTAREA" && !e.target.isContentEditable) {
+	      e.preventDefault();
+	    }
+	  } else {
+		console.log(e);
+	  }
+	}
+	var env = _CreateEnvironment();
+	document.getElementById("submit").disabled = false;
+	document.getElementById("halt").disabled = true;
+	document.getElementById("program").onchange = function(event) {
+		document.getElementById("code").value = document.getElementById(event.target.value).innerText;
+	}
+	document.getElementById("halt").onclick = function(event) {
+		event.preventDefault()
+		window.removeEventListener("keydown", spaceBarDisable);
+		_SetHaltExecution(env, true);
+		_SetEvaluationError(env, false);
+		let _eval = "(raylib-close-window)";
+		let lengthBytes = lengthBytesUTF8(_eval)+1;
+		let c_eval = _malloc(lengthBytes);
+		stringToUTF8(_eval, c_eval, Infinity);
+		_Eval(env, c_eval);
+		_free(c_eval);
+		_Clear(env);
+		document.getElementById("halt").disabled = true;
+		document.getElementById("submit").disabled = false;
+	}
+	document.getElementById("submit").onclick = function(event) {
+		event.preventDefault()
+		window.addEventListener("keydown", spaceBarDisable);
+		const myString = document.getElementById("code").value;
+		let filename = './clips.bat';
+		lengthBytes = lengthBytesUTF8(filename)+1;
+		let cFilename = _malloc(lengthBytes);
+		stringToUTF8(filename, cFilename, Infinity);
+		FS.writeFile('./clips.bat', myString);
+		_Clear(env);
+		_BatchStar(env, cFilename);
+		document.getElementById("submit").disabled = true;
+		document.getElementById("halt").disabled = false;
+		_free(cFilename);
+		FS.unlink('./clips.bat');
+	}
+}
+  </script>
+</body>
+</html>
