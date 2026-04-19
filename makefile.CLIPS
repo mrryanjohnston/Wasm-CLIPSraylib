@@ -67,7 +67,7 @@ debug : LDLIBS = -lm
 debug : clips
 
 release : CC = emcc
-release : CFLAGS = -std=c99 -O3 -flto -DNDEBUG -fno-strict-aliasing
+release : CFLAGS = -std=c99 -O3 -flto -DNDEBUG -fno-strict-aliasing -I./../../raylib/src
 release : LDLIBS = -lm
 release : clips
 
