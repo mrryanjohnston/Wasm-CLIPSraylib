@@ -6,3 +6,9 @@ clipsraylib.wasm
 tour-of-clipsraylib.html
 tour-of-clipsraylib.html.tmp
 assets
+
+# Vim leaves these beside the file being edited, including under .github/, and
+# a swap file holds unsaved buffer contents.
+*.swp
+*.swo
+*~

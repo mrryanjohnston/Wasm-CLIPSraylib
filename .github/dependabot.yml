@@ -1,0 +1,26 @@
+# Keeps the SHA-pinned actions in workflows/ current. Pinning to a commit is
+# what stops a repointed tag from running unreviewed code in the deploy job,
+# which holds an OIDC token that can assume the AWS role - but a pin never
+# moves on its own, so without this the actions quietly go stale instead.
+#
+# Dependabot reads the version comment trailing each pin
+# (uses: actions/checkout@<sha> # v7.0.1) and rewrites the sha and the comment
+# together, so the file stays readable.
+version: 2
+
+updates:
+  - package-ecosystem: "github-actions"
+    # "/" means the workflows in .github/workflows, not a subdirectory.
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # One pull request for every action rather than one per action: six separate
+    # bumps a month is the kind of noise that gets ignored, which defeats the
+    # point of watching for them at all.
+    groups:
+      actions:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "ci"
