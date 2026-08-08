@@ -3,3 +3,6 @@ raylib
 *.png
 clipsraylib
 clipsraylib.wasm
+tour-of-clipsraylib.html
+tour-of-clipsraylib.html.tmp
+assets

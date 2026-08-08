@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="An introduction to CLIPSraylib, a way to write raylib in CLIPS." />
+  <meta name="title" content="ryjo.codes - Tour of CLIPSraylib" />
+  <title>ryjo.codes - Tour of CLIPSraylib</title>
+  <link rel="stylesheet" type="text/css" href="@CSS_URL@" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+  <link rel="manifest" href="/site.webmanifest" />
+  <link rel="mask-icon" href="/safari-pinned-tab.svg" color="#000000" />
+  <meta name="msapplication-TileColor" content="#ffffff" />
+  <meta name="theme-color" content="#ffffff" />
+</head>
+<body>
+  <header>
+      <div id="site">
+        <h1><a href="/">ryjo.codes</a></h1>
+      </div>
+      <div id="title">
+        <h2><a href="#">Tour of CLIPSraylib</a></h2>
+      </div>
+    </header>
+  <div id="main">
+  <div id="left">
+	  <canvas id="canvas"></canvas>
+  </div>
+  <div id="right">
+	  <textarea id="code">@PROGRAM_DEFAULT@</textarea>
+	  <div id="controls">
+		  <button id="submit" disabled=disabled>Run!</button>
+		  <button id="halt" disabled=disabled>Halt.</button>
+	  </div>
+	  Programs:
+	  <select id="program">
+@PROGRAM_OPTIONS@
+	  </select>
+  </div>
+  </div>
+  <div id="what">
+  <h2>What is this?</h2>
+  <p>
+	This site,
+	<a href="https://ryjo.codes/tour-of-clipsraylib.html">Tour of CLIPSraylib</a>,
+	is
+	<a href="https://github.com/mrryanjohnston/Wasm-CLIPSraylib" target="_blank">Wasm-CLIPSraylib</a>,
+	a site demonstrating how you can build videogames in real time in your browser
+	using
+	<a href="https://www.clipsrules.net/" target="_blank">CLIPS</a>,
+	<a href="https://www.raylib.com/" target="_blank">raylib</a>,
+	and
+	<a href="https://emscripten.org/" target="_blank">Emscripten</a>.
+	It lets you make changes to the code in the <code>textarea</code> HTML element
+	and render the changes to a <code>canvas</code> element.
+	It uses no other front-end frameworks to accomplish this.
+  </p>
+  <h2>What is CLIPS?</h2>
+  <p>
+	<a href="https://www.clipsrules.net/" target="_blank">CLIPS</a>
+	is a programming language well suited for building
+	<a href="https://en.wikipedia.org/wiki/Business_rules_engine" target="_blank">Rules Engines</a>,
+	programs that express your business logic as "Rules" and "Facts."
+	It was originally written by engineers at NASA between 1985 and 1996 and was touted
+	as "NASA's AI Language."
+	It is still actively maintained by one of the original programmers,
+	<a href="https://clipsrules.net/AboutTheDeveloper.html" target="_blank">Gary Riley</a>.
+	CLIPS is very convenient for building Video Games because
+	Games express instructions for playing them as "Rules."
+  </p>
+  <h2>What is raylib?</h2>
+  <p>
+	<a href="https://www.raylib.com/" target="_blank">raylib</a>
+	is "a simple and easy-to-use library to enjoy videogames programming."
+	Its lead developer is
+	<a href="https://github.com/raysan5" target="_blank">raysan</a>,
+	a University Lecturer at
+	<a href="https://www.tecnocampus.cat/en/" target="_blank">TechnoCampus</a>.
+	raylib works really well with CLIPS because its API is very easy to implement
+	as CLIPS User Defined Functions.
+  </p>
+  <h2>What is Emscripten?</h2>
+  <p>
+	<a href="https://emscripten.org/" target="_blank">Emscripten</a>
+	is "a complete compiler toolchain to WebAssembly, using LLVM,
+	with a special focus on speed, size, and the Web platform." It's been around
+	since 2010, and it's easy to use with raylib and CLIPS. Simply specify
+	<code>PLATFORM_WEB</code> for raylib
+	and change your C compiler to <code>emcc</code> for CLIPS and you're good to go.
+  </p>
+  </div>
+@PROGRAM_SOURCES@
+  <script src="@ENGINE_URL@"></script>
+  <script>
+Module.canvas = document.getElementById('canvas');
+Module.onRuntimeInitialized = function() {
+	// [name in the emscripten FS, url it is published under]. Each texture
+	// carries its own content hash in its url so it can be cached forever, and
+	// so that adding one leaves the urls of all the others alone. In the FS it
+	// keeps the bare name the CLIPS programs ask for, e.g.
+	// (raylib-load-texture "scarfy.png").
+	[
+@TEXTURE_FILES@
+	].forEach(([name, url]) => {
+		fetch(url)
+			.then(response => response.arrayBuffer())
+			.then(buffer => {
+				const imageData = new Uint8Array(buffer);
+				FS.writeFile(name, imageData);
+			})
+			.catch(err => console.error(`Error fetching or saving ${name}`, err));
+	})
+	const spaceBarDisable = function(e) {
+	  // Check if the space bar is pressed
+	  if (
+		e.code === "Space" || e.keyCode === 32 ||
+		e.code === "ArrowLeft" || e.keyCode === 37 ||
+		e.code === "ArrowRight" || e.keyCode === 39 ||
+		e.code === "ArrowUp" || e.keyCode === 38 ||
+		e.code === "ArrowDown" || e.keyCode === 40
+	     ) {
+	    // Allow the space bar if you're in an input, textarea, or contentEditable element
+	    const tag = e.target.tagName;
+	    if (tag !== "INPUT" && tag !== "TEXTAREA" && !e.target.isContentEditable) {
+	      e.preventDefault();
+	    }
+	  }
+	}
+	var env = _CreateEnvironment();
+	document.getElementById("submit").disabled = false;
+	document.getElementById("halt").disabled = true;
+	document.getElementById("program").onchange = function(event) {
+		document.getElementById("code").value = document.getElementById(event.target.value).innerText;
+		location.hash = event.target.value;
+	}
+	// set program according to id hash
+	if (location.hash) {
+		const id = location.hash.slice(1);
+		const select = document.getElementById("program");
+		const option = select.querySelector(`option[value="${id}"]`);
+		if (option) {
+			select.value = id;
+			document.getElementById("code").value = document.getElementById(id).innerText;
+		}
+	}
+	document.getElementById("halt").onclick = function(event) {
+		event.preventDefault()
+		window.removeEventListener("keydown", spaceBarDisable);
+		_SetHaltExecution(env, true);
+		_SetEvaluationError(env, false);
+		let _eval = "(raylib-close-window)";
+		let lengthBytes = lengthBytesUTF8(_eval)+1;
+		let c_eval = _malloc(lengthBytes);
+		stringToUTF8(_eval, c_eval, Infinity);
+		_Eval(env, c_eval);
+		_free(c_eval);
+		_Clear(env);
+		document.getElementById("halt").disabled = true;
+		document.getElementById("submit").disabled = false;
+	}
+	document.getElementById("submit").onclick = function(event) {
+		event.preventDefault()
+		window.addEventListener("keydown", spaceBarDisable);
+		const myString = document.getElementById("code").value;
+		let filename = './clips.bat';
+		lengthBytes = lengthBytesUTF8(filename)+1;
+		let cFilename = _malloc(lengthBytes);
+		stringToUTF8(filename, cFilename, Infinity);
+		FS.writeFile('./clips.bat', myString);
+		_Clear(env);
+		_BatchStar(env, cFilename);
+		document.getElementById("submit").disabled = true;
+		document.getElementById("halt").disabled = false;
+		_free(cFilename);
+		FS.unlink('./clips.bat');
+	}
+}
+  </script>
+</body>
+</html>

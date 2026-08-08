@@ -1,0 +1,157 @@
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Never let two deploys race for the same objects.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Pinned, never "latest", and read from the same file the makefile reads,
+      # so a local build and a CI build cannot drift apart. The emcc version
+      # decides the generated glue and so the content hash in the asset urls.
+      - name: Read pinned emscripten version
+        run: echo "EMSDK_VERSION=$(cat .emscripten-version)" >> "$GITHUB_ENV"
+
+      # raylib and CLIPSraylib arrive over the network and building raylib for
+      # the web is the slow part; caching the checkouts keeps both off the
+      # critical path. Keyed on the two makefiles, which hold the pinned upstream
+      # commits and the compile flags, so moving a pin misses the cache.
+      #
+      # The .git directories ride along on purpose: the makefile drives the
+      # checkouts with git, so a restored tree has to still be a repository.
+      - name: Cache raylib and CLIPSraylib
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            raylib
+            CLIPSraylib
+          key: deps-${{ runner.os }}-emsdk${{ env.EMSDK_VERSION }}-${{ hashFiles('makefile', 'makefile.CLIPS') }}
+
+      # Both the compiler and the installer are pinned. emsdk-version would
+      # default to the emscripten version anyway, but stating it keeps the pin
+      # from resting on that fallback - emsdk is tagged in lockstep with
+      # emscripten releases, so one version string names both.
+      - uses: emscripten-core/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984 # v16
+        with:
+          version: ${{ env.EMSDK_VERSION }}
+          emsdk-version: ${{ env.EMSDK_VERSION }}
+          actions-cache-folder: emsdk-${{ env.EMSDK_VERSION }}
+
+      - name: Build engine
+        run: make
+
+      # Also stages assets/ with the content-addressed copies the page links to.
+      - name: Build page
+        run: make html
+
+      # Checks the page against examples/ and against the staged assets/. What
+      # it cannot check is whether the wasm draws, which needs a GPU.
+      - name: Smoke test
+        run: node ci/smoke-test.js
+
+      - name: Show published paths
+        run: find assets -type f | sort
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: site
+          path: |
+            tour-of-clipsraylib.html
+            assets/
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      id-token: write # for the OIDC token exchanged for the AWS role
+      contents: read
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: site
+
+      - uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # Immutable and content-addressed, so they can be cached for a year and
+      # never need invalidating. Uploaded BEFORE the page, so the page never
+      # references an object that is not there yet.
+      #
+      # Note there is no --delete anywhere in this job, by design: this bucket
+      # holds the whole site, and older builds have to stay reachable for
+      # visitors still holding an older cached copy of the page.
+      - name: Upload assets
+        env:
+          BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          set -euo pipefail
+          IMMUTABLE='public, max-age=31536000, immutable'
+          # Explicit --content-type per extension: S3 would tag .wasm as
+          # binary/octet-stream, which drops emscripten off the
+          # instantiateStreaming path.
+          aws s3 cp assets/ "s3://$BUCKET/assets/" --recursive \
+            --exclude '*' --include '*.wasm' \
+            --content-type 'application/wasm' \
+            --cache-control "$IMMUTABLE"
+          aws s3 cp assets/ "s3://$BUCKET/assets/" --recursive \
+            --exclude '*' --include '*.js' \
+            --content-type 'text/javascript; charset=utf-8' \
+            --cache-control "$IMMUTABLE"
+          aws s3 cp assets/ "s3://$BUCKET/assets/" --recursive \
+            --exclude '*' --include '*.css' \
+            --content-type 'text/css; charset=utf-8' \
+            --cache-control "$IMMUTABLE"
+          # The example textures. Each is published under its own content hash,
+          # so the key here is not the bare name the CLIPS programs pass to
+          # (raylib-load-texture) - the page maps one to the other.
+          aws s3 cp assets/ "s3://$BUCKET/assets/" --recursive \
+            --exclude '*' --include '*.png' \
+            --content-type 'image/png' \
+            --cache-control "$IMMUTABLE"
+
+      # The only mutable object, and so the only one that can go stale. Short
+      # max-age because an invalidation clears CloudFront's edge caches but not
+      # browsers': a long TTL here would strand returning visitors on old html
+      # that no invalidation can reach.
+      - name: Upload page
+        env:
+          BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          set -euo pipefail
+          aws s3 cp tour-of-clipsraylib.html "s3://$BUCKET/tour-of-clipsraylib.html" \
+            --content-type 'text/html; charset=utf-8' \
+            --cache-control 'public, max-age=60, must-revalidate'
+
+      # One path, because the assets are addressed by content. Waiting on it
+      # makes a green check mean "live" rather than "accepted".
+      - name: Invalidate page
+        env:
+          DIST: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+        run: |
+          set -euo pipefail
+          ID=$(aws cloudfront create-invalidation \
+                --distribution-id "$DIST" \
+                --paths /tour-of-clipsraylib.html \
+                --query 'Invalidation.Id' --output text)
+          echo "invalidation $ID"
+          aws cloudfront wait invalidation-completed --distribution-id "$DIST" --id "$ID"
